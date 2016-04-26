@@ -80,9 +80,9 @@ function prepareStatements(db, cb) {
     if (err) return cb(err);
     
     var dbAdapter = {
-      db: db,
-      stmtRetrieve: statements[0],
-      stmtCreate: statements[1],
+      db:                    db,
+      stmtRetrieve:          statements[0],
+      stmtCreate:            statements[1],
       stmtRetrieveLastRowId: statements[2]
     };
     
@@ -142,40 +142,30 @@ async.waterfall([
     });
   }
   
-  // create a thing named hello...
-  add('hello', function (err, id) {
+  // create two things
+  async.mapSeries(['hello', 'world'], add, function (err, ids) {
     if (err) {
       console.log(err);
       console.log(err.stack);
       return;
     }
-    console.log('created thing with id ', id);
+    console.log('created two things with ids', ids);
     
-    // create a second thing named world (must be run in serial, not in parallel)...
-    add('world', function (err, id) {
+    // retrieve list of things
+    retrieve(function (err, things) {
       if (err) {
         console.log(err);
         console.log(err.stack);
         return;
       }
-      console.log('created thing with id ', id);
-      
-      // retrieve the list of things...
-      retrieve(function (err, things) {
-        if (err) {
-          console.log(err);
-          console.log(err.stack);
-          return;
-        }
         
-        // use lodash for synchronous operations on collections...
-        lodash.each(things, function (thing) {
-          console.log(thing);
-        });
+      // use lodash for synchronous operations on collections...
+      lodash.each(things, function (thing) {
+        console.log(thing);
+      });
         
-      }); 
-    });
-    
+    }); 
+
   });
   
 });
