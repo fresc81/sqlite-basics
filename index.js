@@ -63,32 +63,73 @@ function prepareStatements(db, cb) {
     });
   }
   
-  async.series([
-    function (next) {
+  async.series({
+    stmtRetrieve: function (next) {
       console.log('prepare stmtRetrieve...');
       prepareStatement('SELECT * FROM thing', next);
     },
-    function (next) {
+    stmtCreate: function (next) {
       console.log('prepare stmtCreate...');
       prepareStatement('INSERT INTO thing (name) VALUES ($name)', next);
     },
-    function (next) {
+    stmtRetrieveLastRowId: function (next) {
       console.log('prepare stmtRetrieveLastRowId...');
       prepareStatement('SELECT last_insert_rowid() AS last_row_id', next);
     },
-  ], function (err, statements) {
+  }, function (err, statements) {
     if (err) return cb(err);
     
     var dbAdapter = {
       db:                    db,
-      stmtRetrieve:          statements[0],
-      stmtCreate:            statements[1],
-      stmtRetrieveLastRowId: statements[2]
+      stmtRetrieve:          statements.stmtRetrieve,
+      stmtCreate:            statements.stmtCreate,
+      stmtRetrieveLastRowId: statements.stmtRetrieveLastRowId
     };
     
     cb(null, dbAdapter);
   });
   
+}
+
+// operation for adding new things and retrieve their ids in a transaction
+function addThing (dbAdapter, name, cb) {
+  console.log('add...');
+  
+  // can mix statements and prepared statements...
+  async.series([
+    function (next) {
+      dbAdapter.db.exec('BEGIN TRANSACTION;', next);
+    },
+    function (next) {
+      dbAdapter.stmtCreate.run(name, next);
+    },
+    function (next) {
+      dbAdapter.stmtRetrieveLastRowId.get(next);
+    },
+    function (next) {
+      dbAdapter.db.exec('COMMIT;', next);
+    },
+  ], function (err, results) {
+    if (err) return cb(err); // ROLLBACK?
+    
+    // don't use reset methods asynchronously here to prevent segmentation fault
+    dbAdapter.stmtCreate.reset();
+    dbAdapter.stmtRetrieveLastRowId.reset();
+    
+    cb(null, results[2].last_row_id);
+  });
+}
+
+// operation for getting a list of all things
+function retrieveThings (dbAdapter, cb) {
+  console.log('retrieve...');
+  dbAdapter.stmtRetrieve.all(function (err, results) {
+    if (err) return cb(err);
+    
+    dbAdapter.stmtRetrieve.reset();
+    
+    cb(null, results);
+  });
 }
 
 // startup...
@@ -103,69 +144,40 @@ async.waterfall([
     return;
   }
   
-  // operation for adding new things and retrieve their ids in a transaction
-  function add (name, cb) {
-    console.log('add...');
-    async.series([
-      function (next) {
-        dbAdapter.db.exec('BEGIN TRANSACTION;', next);
-      },
-      function (next) {
-        dbAdapter.stmtCreate.run(name, next);
-      },
-      function (next) {
-        dbAdapter.stmtRetrieveLastRowId.get(next);
-      },
-      function (next) {
-        dbAdapter.db.exec('COMMIT;', next);
-      },
-    ], function (err, results) {
-      if (err) return cb(err); // ROLLBACK?
-      
-      // don't use reset methods asynchronously here to prevent segmentation fault
-      dbAdapter.stmtCreate.reset();
-      dbAdapter.stmtRetrieveLastRowId.reset();
-      
-      cb(null, results[2].last_row_id);
-    });
-  }
-  
-  // operation for getting a list of all things
-  function retrieve (cb) {
-    console.log('retrieve...');
-    dbAdapter.stmtRetrieve.all(function (err, results) {
-      if (err) return cb(err);
-      
-      dbAdapter.stmtRetrieve.reset();
-      
-      cb(null, results);
-    });
-  }
-  
-  // create two things
-  async.mapSeries(['hello', 'world'], add, function (err, ids) {
+  // start batch...
+  async.series({
+    
+    // create two things and retrieve their ids...
+    ids: function (done) {
+      async.mapSeries(['hello', 'world'], addThing.bind(null, dbAdapter), function (err, ids) {
+        if (err) return done(err);
+        done(null, ids);
+      });
+    },
+    
+    // retrieve all things...
+    things: function (done) {
+      retrieveThings(dbAdapter, function (err, things) {
+        if (err) return done(err);
+        done(null, things);  
+      }); 
+    }
+    
+  }, function (err, results) {
     if (err) {
       console.log(err);
       console.log(err.stack);
       return;
     }
-    console.log('created two things with ids', ids);
     
-    // retrieve list of things
-    retrieve(function (err, things) {
-      if (err) {
-        console.log(err);
-        console.log(err.stack);
-        return;
-      }
-        
-      // use lodash for synchronous operations on collections...
-      lodash.each(things, function (thing) {
-        console.log(thing);
-      });
-        
-    }); 
-
+    // present results...
+    console.log('created two things with ids', results.ids.join(', '));
+    
+    // use lodash for synchronous operations on collections...
+    lodash.each(results.things, function (thing) {
+      console.log(thing);
+    });
+    
   });
   
 });
