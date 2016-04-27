@@ -148,18 +148,18 @@ async.waterfall([
   async.series({
     
     // create two things and retrieve their ids...
-    ids: function (done) {
+    ids: function (next) {
       async.mapSeries(['hello', 'world'], addThing.bind(null, dbAdapter), function (err, ids) {
-        if (err) return done(err);
-        done(null, ids);
+        if (err) return next(err);
+        next(null, ids);
       });
     },
     
     // retrieve all things...
-    things: function (done) {
+    things: function (next) {
       retrieveThings(dbAdapter, function (err, things) {
-        if (err) return done(err);
-        done(null, things);  
+        if (err) return next(err);
+        next(null, things);  
       }); 
     }
     
